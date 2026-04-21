@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+__MACOSX/
+
+# Archives (assets already unpacked)
+*.zip
+
+# Local dev notes
+*.local
+CLAUDE.md

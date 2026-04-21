@@ -1,0 +1,10 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none">
+      <path
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="M2 3.25a.75.75 0 0 0 0 1.5h6.25V20a.75.75 0 0 0 1.5 0V4.75H16a.75.75 0 0 0 0-1.5H2zm12 8a.75.75 0 0 0 0 1.5h3.25V20a.75.75 0 0 0 1.5 0v-7.25H22a.75.75 0 0 0 0-1.5h-8z"
+        fill="currentColor"
+      ></path>
+    </g>
+  </svg>
