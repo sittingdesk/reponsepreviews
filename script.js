@@ -577,6 +577,7 @@ const CONVERSATIONS_V2 = [
       { id: 'v2-m1-1', role: 'customer', text: 'Hi! I just booked a room for next weekend and wanted to know if breakfast is included in my stay?', time: '9:40 AM' },
       { id: 'v2-m1-draft', role: 'ai-draft', text: 'Hello Maria! Thank you for your booking. Yes, breakfast is complimentary for all our guests and is served daily from 7:00 AM to 10:30 AM in our restaurant on the ground floor. We offer a full buffet with both hot and cold options.\n\nIs there anything else I can help you with regarding your upcoming stay?', time: '9:42 AM' }
     ],
+    _draftReadyForPreload: true,
     // Follow-up messages for the reply cycle (step 6+7)
     _followUps: [
       { customer: { text: 'That sounds great, thank you! One more thing — is there parking available at the hotel? We\'re driving in from Amsterdam.', time: '9:45 AM' },
@@ -594,10 +595,15 @@ const CONVERSATIONS_V2 = [
     lastActivity: '8:15 AM',
     unread: true,
     preview: 'Dear Hotel Team, I am writing to confirm my upcoming reservation...',
-    useCase: 'Escalation',
+    useCase: 'Handover',
     messages: [
       { id: 'v2-m2-1', role: 'customer', text: 'Dear Hotel Team,\n\nI am writing to confirm my upcoming reservation. I have some specific requirements regarding accessibility that I need to discuss urgently.', time: '8:15 AM' }
     ],
+    _draftReadyForPreload: true,
+    _initialReply: {
+      text: "Dear James,\n\nThank you for reaching out about your upcoming stay. I'd be happy to help with your accessibility requirements. Could you share the specific arrangements you need — for example wheelchair access, visual or hearing support, or dietary considerations? I'll make sure everything is confirmed and our team is fully prepared for your arrival.",
+      time: '8:17 AM'
+    },
     _escalation: {
       followUp: { id: 'v2-m2-2', text: "I've been waiting for a response for days now. This is completely unacceptable — my check-in is in two days and I still have no confirmation about the accessibility arrangements. I need a response immediately.", time: '8:22 AM' }
     },
@@ -617,6 +623,11 @@ const CONVERSATIONS_V2 = [
     messages: [
       { id: 'v2-m3-1', role: 'customer', text: 'Hello, I would like to extend my current stay by two additional nights. Could you check availability?', time: 'Yesterday' }
     ],
+    _draftReadyForPreload: true,
+    _initialReply: {
+      text: "Hi Thomas,\n\nThanks for getting in touch! I'd be glad to check availability for extending your stay by two additional nights. Could you confirm your booking reference and the exact dates you'd like added? I'll come back with availability and pricing as soon as I hear from you.",
+      time: 'Yesterday'
+    },
     _salesEscalation: {
       bigMsg: {
         text: "Actually — I should mention, we're now considering booking the entire hotel wing for a corporate retreat. We'd need accommodation for 40 people across 5 nights. This is a priority for us and we need to move quickly. Can you help us put this together?",
@@ -651,6 +662,7 @@ const CONVERSATIONS_V2 = [
     messages: [
       { id: 'v2-m4-1', role: 'customer', text: "Hi there! I'm very interested in applying for a position at your hotel. I have experience in hospitality and guest relations. Could you let me know how I can submit my application or who I should speak with?", time: 'Yesterday' }
     ],
+    _draftReadyForPreload: true,
     _teamEscalation: {
       greeting: {
         text: "Hi Aisha,\n\nThank you for reaching out — it's great to hear you're interested in joining our team!\n\nI'll connect you with the right people right away. Our People team handles all applications and will be happy to guide you through the process.\n\nStay tuned!",
@@ -673,6 +685,7 @@ const CONVERSATIONS_V2 = [
     messages: [
       { id: 'v2-m5-1', role: 'customer', text: "My door lock isn't working properly. The keycard doesn't seem to register when I tap it.", time: 'Mon' }
     ],
+    _draftReadyForPreload: true,
     _closeData: {
       agentReply: {
         text: "Hi Yuki,\n\nSo sorry about that! I've flagged this to our maintenance team right away — they'll be with you within the next 30 minutes to sort the lock.\n\nLet me know if there's anything else I can do in the meantime!",
@@ -701,6 +714,7 @@ const CONVERSATIONS_V2 = [
     messages: [
       { id: 'v2-m6-1', role: 'customer', text: "Hi, we have a corporate event next Friday and several attendees have dietary restrictions. Could you coordinate with your kitchen team? We're on a tight schedule and really can't afford any mix-ups.", time: 'Mon' }
     ],
+    _draftReadyForPreload: true,
     _labelData: {
       agentReply: {
         text: "Hi Sophie,\n\nOf course — I'll make sure our kitchen team is fully briefed before Friday. Could you share the full list of dietary requirements so we can prepare everything properly?\n\nWe'll make sure there are no mix-ups!",
@@ -736,6 +750,7 @@ const CONVERSATIONS_V2 = [
         text: "Hi, I've been looking at my latest invoice and something doesn't add up. I think I was charged twice in April but I'm not sure which line item is wrong. Invoice number is #2847. Can someone take a look?",
         time: 'Now' }
     ],
+    _draftReadyForPreload: true,
     _barryData: {
       agentReply: {
         text: "Hi Barry,\n\nThanks for flagging this! To look into invoice #2847 properly, could you let us know:\n• The exact amount you believe was charged incorrectly?\n• The date the charge appeared?\n• Which payment method was used?\n\nWe'll get this sorted for you as quickly as possible.",
@@ -2311,6 +2326,10 @@ function renderThread(convId, iterNum) {
 //   V2 SHARED ANIMATION HELPERS
 // ══════════════════════════════════
 function v2PanelEnter(panel) {
+  // No-op when panel is already visible — prevents flicker when the panel
+  // lives continuously on screen in a minimised/standby state.
+  const alreadyVisible = !panel.hidden && panel.style.opacity !== '0';
+  if (alreadyVisible) return;
   panel.style.opacity = '0';
   panel.style.transform = 'translateY(10px)';
   panel.hidden = false;
@@ -2319,10 +2338,34 @@ function v2PanelEnter(panel) {
     panel.style.transform = 'translateY(0)';
   }));
 }
+// Instead of hiding the panel, morph it into the "on standby" resting state.
+// The AI-licia indicator must always remain visible in a conversation.
 function v2PanelExit(panel, cb) {
+  const body = panel.querySelector('.composer-v2-draft-body');
+  const hdr  = panel.querySelector('.composer-v2-draft-header-right');
+  if (body) body.classList.remove('composer-v2-draft-body--open');
+  if (hdr && hdr.style.visibility !== 'hidden') v2ButtonsExit(hdr);
+  v2SetLabel(panel, 'on standby', false);
+  panel.hidden = false;
+  panel.style.opacity = '1';
+  panel.style.transform = '';
+  setTimeout(() => {
+    if (body) body.innerHTML = '';
+    if (cb) cb();
+  }, 400);
+}
+// Truly hide the panel — used when the conversation is handed over to a
+// specific human (e.g. Federico). AI-licia steps aside entirely.
+function v2PanelHide(panel, cb) {
+  panel.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
   panel.style.opacity = '0';
   panel.style.transform = 'translateY(6px)';
-  setTimeout(() => { panel.hidden = true; panel.style.transform = ''; if (cb) cb(); }, 220);
+  setTimeout(() => {
+    panel.hidden = true;
+    panel.style.transform = '';
+    panel.style.transition = '';
+    if (cb) cb();
+  }, 220);
 }
 function v2BodyOpen(body, html) {
   body.innerHTML = html;
@@ -2379,6 +2422,32 @@ function v2PanelRest(panel) {
   panel.hidden = false;
   panel.style.opacity = '1';
   panel.style.transform = '';
+}
+
+// Shows panel instantly in "response preview" state — no animation delay
+function v2ShowPreloaded(panel, body, html) {
+  panel.hidden = false;
+  panel.style.opacity = '1';
+  panel.style.transform = '';
+  panel.style.transition = '';
+  const labelEl = panel.querySelector('.composer-v2-draft-label');
+  if (labelEl) labelEl.textContent = 'response preview';
+  panel.querySelector('.composer-v2-header-dots')?.remove();
+  if (html && body) {
+    body.innerHTML = html;
+    body.classList.add('composer-v2-draft-body--open');
+  }
+}
+
+// Replace animation — runs when a new customer message arrives while preloaded
+// draft is showing. Buttons exit → body closes → "composing a reply ●●●".
+// cb fires at ~1200ms so caller can advance to the next state.
+function v2ReplaceDraft(panel, body, cb) {
+  const hdr = panel.querySelector('.composer-v2-draft-header-right');
+  if (hdr && hdr.style.visibility !== 'hidden') v2ButtonsExit(hdr);
+  setTimeout(() => v2BodyClose(body), 180);
+  setTimeout(() => v2SetLabel(panel, 'composing a reply', true), 600);
+  setTimeout(() => { if (cb) cb(); }, 1200);
 }
 
 // ── Dismiss banner (shown instead of silently hiding panel on minus click) ──
@@ -2497,17 +2566,127 @@ function runV2ReplyFlow(convId, suffix) {
 
   // ── Main flow ────────────────────────────────────────────────────────
 
+  // Button setup — shared between preloaded path and animated path
+  function wireReplyButtons(draftText) {
+    const headerRight = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (!headerRight) return;
+    headerRight.innerHTML = `
+      <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+      </button>
+      <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+        Send
+        <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+      </button>
+      <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+      </button>`;
+    v2ButtonsEnter(headerRight);
+    window._v2CopiedFlag = false;
+
+    document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+      window._v2CopiedFlag = true;
+      navigator.clipboard.writeText(draftText);
+      const btn = e.currentTarget;
+      btn.querySelector('.copy-tooltip')?.remove();
+      const tip = document.createElement('span');
+      tip.className = 'copy-tooltip';
+      tip.textContent = 'Copied';
+      btn.appendChild(tip);
+      requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+      setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+    });
+
+    document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+      showDismissBanner({ panel: draftPanel, suffix, msgContainer: container, composer });
+    });
+
+    document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+      const _wasCopied = !!window._v2CopiedFlag;
+      window._v2CopiedFlag = false;
+      const msgContainer = document.getElementById(`inbox-thread-messages-${suffix}`);
+      const bubble = document.createElement('div');
+      bubble.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
+      bubble.style.opacity = '0';
+      bubble.style.transform = 'translateY(10px)';
+      bubble.innerHTML = `
+        <div class="inbox-msg-card">
+          <div class="inbox-msg-bubble inbox-msg-bubble--agent">${draftText.replace(/\n/g, '<br>')}
+            <div class="inbox-msg-avatar inbox-msg-avatar--agent"><img src="daan.png" alt="Daan" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
+          </div>
+        </div>
+        <div class="inbox-msg-footer inbox-msg-footer--agent">
+          <span class="inbox-msg-name">Daan</span>
+          <span class="inbox-msg-sep">-</span>
+          <span class="inbox-msg-time">Just now</span>
+        </div>`;
+      msgContainer.insertBefore(bubble, composer);
+      requestAnimationFrame(() => {
+        bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
+        bubble.style.opacity = '1';
+        bubble.style.transform = 'translateY(0)';
+      });
+      buttonsExit(headerRight, () => {
+        bodyClose();
+        transitionLabel(_wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+      });
+      setTimeout(() => transitionLabel('on standby', false), 4000);
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+
+      const followUp = conv._followUps && conv._followUps[conv._followUpIndex];
+      if (followUp) {
+        conv._followUpIndex++;
+        const t3 = setTimeout(() => {
+          const custBubble = document.createElement('div');
+          custBubble.className = 'inbox-msg inbox-msg--customer';
+          custBubble.style.opacity = '0';
+          custBubble.style.transform = 'translateY(10px)';
+          custBubble.innerHTML = `
+            <div class="inbox-msg-card">
+              <div class="inbox-msg-bubble inbox-msg-bubble--customer">${followUp.customer.text.replace(/\n/g, '<br>')}
+                <div class="inbox-msg-avatar inbox-msg-avatar--customer">${conv.customer.initials}</div>
+              </div>
+            </div>
+            <div class="inbox-msg-footer">
+              <span class="inbox-msg-name">${conv.customer.name}</span>
+              <span class="inbox-msg-sep">-</span>
+              <span class="inbox-msg-time">${followUp.customer.time}</span>
+            </div>`;
+          msgContainer.insertBefore(custBubble, composer);
+          requestAnimationFrame(() => {
+            custBubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
+            custBubble.style.opacity = '1';
+            custBubble.style.transform = 'translateY(0)';
+          });
+          msgContainer.scrollTop = msgContainer.scrollHeight;
+          panelExit(() => startTypingToDraftFlow(followUp.draft.text, 0));
+        }, 10000);
+        window._v2ReplyTimers.push(t3);
+      }
+    });
+  }
+
   function startTypingToDraftFlow(draftText, delayStart) {
     delayStart = delayStart || 0;
 
-    // Step 1: Ensure panel is hidden and composer is visible
-    draftPanel.hidden = true;
-    draftPanel.style.opacity = '0';
+    // Preloaded path — show draft instantly on first open
+    if (conv._draftReadyForPreload) {
+      conv._draftReadyForPreload = false;
+      if (composer) composer.hidden = false;
+      v2ShowPreloaded(draftPanel, draftBody, draftText.replace(/\n/g, '<br>'));
+      wireReplyButtons(draftText);
+      return;
+    }
+
+    // Step 1: Keep panel visible (in standby), clear previous draft content
     draftBody.classList.remove('composer-v2-draft-body--open');
     draftBody.innerHTML = '';
     const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
     if (composer) composer.hidden = false;
+    draftPanel.hidden = false;
+    draftPanel.style.opacity = '1';
+    draftPanel.style.transform = '';
 
     // Step 2: Panel slides in — "composing a reply ●●●"
     const t1 = setTimeout(() => {
@@ -2521,121 +2700,10 @@ function runV2ReplyFlow(convId, suffix) {
     const t2 = setTimeout(() => {
       transitionLabel('response preview', false);
 
-      // Short stagger: body opens just after label finishes cross-fading
       setTimeout(() => {
         bodyOpen(draftText.replace(/\n/g, '<br>'));
         draftPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-        const headerRight = draftPanel.querySelector('.composer-v2-draft-header-right');
-        if (headerRight) {
-          headerRight.innerHTML = `
-            <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
-            </button>
-            <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
-              Send
-              <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
-            </button>
-            <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
-            </button>`;
-          // Stagger buttons in slightly after body starts opening
-          setTimeout(() => buttonsEnter(headerRight), 80);
-
-          // Reset copy-tracking flag when fresh draft preview appears
-          window._v2CopiedFlag = false;
-
-          // Wire Copy
-          document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-            window._v2CopiedFlag = true;
-            navigator.clipboard.writeText(draftText);
-            const btn = e.currentTarget;
-            btn.querySelector('.copy-tooltip')?.remove();
-            const tip = document.createElement('span');
-            tip.className = 'copy-tooltip';
-            tip.textContent = 'Copied';
-            btn.appendChild(tip);
-            requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-            setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
-          });
-
-          // Wire Dismiss
-          document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
-            showDismissBanner({ panel: draftPanel, suffix, msgContainer: container, composer });
-          });
-
-          // Wire Send (AI draft → agent bubble → waiting)
-          document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
-            const _wasCopied = !!window._v2CopiedFlag;
-            window._v2CopiedFlag = false;
-            const msgContainer = document.getElementById(`inbox-thread-messages-${suffix}`);
-            const bubble = document.createElement('div');
-            bubble.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-            bubble.style.opacity = '0';
-            bubble.style.transform = 'translateY(10px)';
-            bubble.innerHTML = `
-              <div class="inbox-msg-card">
-                <div class="inbox-msg-bubble inbox-msg-bubble--agent">${draftText.replace(/\n/g, '<br>')}
-                  <div class="inbox-msg-avatar inbox-msg-avatar--agent"><img src="daan.png" alt="Daan" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
-                </div>
-              </div>
-              <div class="inbox-msg-footer inbox-msg-footer--agent">
-                <span class="inbox-msg-name">Daan</span>
-                <span class="inbox-msg-sep">-</span>
-                <span class="inbox-msg-time">Just now</span>
-              </div>`;
-            msgContainer.insertBefore(bubble, composer);
-            requestAnimationFrame(() => {
-              bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-              bubble.style.opacity = '1';
-              bubble.style.transform = 'translateY(0)';
-            });
-
-            // Buttons exit → body collapses → label morphs to sent feedback, then 'on standby' after 4s
-            buttonsExit(headerRight, () => {
-              bodyClose();
-              transitionLabel(_wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
-            });
-            setTimeout(() => transitionLabel('on standby', false), 4000);
-            msgContainer.scrollTop = msgContainer.scrollHeight;
-
-            // Step 6: After 10s, follow-up customer message
-            const followUp = conv._followUps && conv._followUps[conv._followUpIndex];
-            if (followUp) {
-              conv._followUpIndex++;
-              const t3 = setTimeout(() => {
-                const custBubble = document.createElement('div');
-                custBubble.className = 'inbox-msg inbox-msg--customer';
-                custBubble.style.opacity = '0';
-                custBubble.style.transform = 'translateY(10px)';
-                custBubble.innerHTML = `
-                  <div class="inbox-msg-card">
-                    <div class="inbox-msg-bubble inbox-msg-bubble--customer">${followUp.customer.text.replace(/\n/g, '<br>')}
-                      <div class="inbox-msg-avatar inbox-msg-avatar--customer">${conv.customer.initials}</div>
-                    </div>
-                  </div>
-                  <div class="inbox-msg-footer">
-                    <span class="inbox-msg-name">${conv.customer.name}</span>
-                    <span class="inbox-msg-sep">-</span>
-                    <span class="inbox-msg-time">${followUp.customer.time}</span>
-                  </div>`;
-                msgContainer.insertBefore(custBubble, composer);
-                requestAnimationFrame(() => {
-                  custBubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-                  custBubble.style.opacity = '1';
-                  custBubble.style.transform = 'translateY(0)';
-                });
-
-                msgContainer.scrollTop = msgContainer.scrollHeight;
-
-                // Panel exits, then next cycle starts
-                panelExit(() => startTypingToDraftFlow(followUp.draft.text, 0));
-
-              }, 10000);
-              window._v2ReplyTimers.push(t3);
-            }
-          });
-        }
+        setTimeout(() => wireReplyButtons(draftText), 80);
       }, 180);
     }, 3000 + delayStart);
     window._v2ReplyTimers.push(t2);
@@ -2669,14 +2737,139 @@ function runV2EscalationFlow(convId, suffix) {
   if (window._v2LabelTimers)      window._v2LabelTimers.forEach(clearTimeout);
   if (window._v2BarryTimers)      window._v2BarryTimers.forEach(clearTimeout);
 
-  // Reset panel state
-  draftPanel.hidden = true;
-  draftPanel.style.opacity = '0';
+  // Reset panel state — keep visible in standby (AI-licia presence persists)
+  draftPanel.hidden = false;
+  draftPanel.style.opacity = '1';
+  draftPanel.style.transform = '';
   draftBody.classList.remove('composer-v2-draft-body--open');
   draftBody.innerHTML = '';
   const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
   if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
   if (composer) composer.hidden = false;
+
+  // Helper: slide in James's frustration bubble
+  function insertFrustrationBubble() {
+    const bubble = document.createElement('div');
+    bubble.className = 'inbox-msg inbox-msg--customer';
+    bubble.style.opacity = '0';
+    bubble.style.transform = 'translateY(10px)';
+    bubble.innerHTML = `
+      <div class="inbox-msg-card">
+        <div class="inbox-msg-bubble inbox-msg-bubble--customer">${secondMsg.text.replace(/\n/g, '<br>')}
+          <div class="inbox-msg-avatar inbox-msg-avatar--customer" style="background:${conv.customer.color}">${conv.customer.initials}</div>
+        </div>
+      </div>
+      <div class="inbox-msg-footer">
+        <span class="inbox-msg-name">${conv.customer.name}</span>
+        <span class="inbox-msg-sep">-</span>
+        <span class="inbox-msg-time">${secondMsg.time}</span>
+      </div>`;
+    msgContainer.insertBefore(bubble, composer);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
+      bubble.style.opacity = '1';
+      bubble.style.transform = 'translateY(0)';
+    }));
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  // Preloaded path — show polite initial reply instantly, then play the
+  // existing handover sequence at its original timings
+  if (conv._draftReadyForPreload && conv._initialReply) {
+    conv._draftReadyForPreload = false;
+    const initialText = conv._initialReply.text;
+    v2ShowPreloaded(draftPanel, draftBody, initialText.replace(/\n/g, '<br>'));
+
+    const _sentRef = { sent: false };
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      hdrP.innerHTML = `
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        </button>
+        <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+          Send
+          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+        </button>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        </button>`;
+      v2ButtonsEnter(hdrP);
+      window._v2CopiedFlag = false;
+
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+        window._v2CopiedFlag = true;
+        navigator.clipboard.writeText(initialText);
+        const btn = e.currentTarget;
+        btn.querySelector('.copy-tooltip')?.remove();
+        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
+        btn.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      });
+
+      document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+        showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer });
+      });
+
+      // Send — if user sends before t=1.5s frustration, cancel handover flow
+      document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+        if (_sentRef.sent) return;
+        _sentRef.sent = true;
+        const _wasCopied = !!window._v2CopiedFlag;
+        window._v2CopiedFlag = false;
+        // Cancel all scheduled handover events
+        if (window._v2EscTimers) window._v2EscTimers.forEach(clearTimeout);
+        window._v2EscTimers = [];
+        // Insert agent bubble
+        const bubble = document.createElement('div');
+        bubble.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
+        bubble.style.opacity = '0'; bubble.style.transform = 'translateY(10px)';
+        bubble.innerHTML = `
+          <div class="inbox-msg-card">
+            <div class="inbox-msg-bubble inbox-msg-bubble--agent">${initialText.replace(/\n/g, '<br>')}
+              <div class="inbox-msg-avatar inbox-msg-avatar--agent"><img src="daan.png" alt="Daan" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
+            </div>
+          </div>
+          <div class="inbox-msg-footer inbox-msg-footer--agent">
+            <span class="inbox-msg-name">Daan</span>
+            <span class="inbox-msg-sep">-</span>
+            <span class="inbox-msg-time">Just now</span>
+          </div>`;
+        msgContainer.insertBefore(bubble, composer);
+        requestAnimationFrame(() => {
+          bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
+          bubble.style.opacity = '1'; bubble.style.transform = 'translateY(0)';
+        });
+        v2ButtonsExit(hdrP, () => {
+          v2BodyClose(draftBody);
+          v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+        });
+        setTimeout(() => v2SetLabel(draftPanel, 'on standby', false), 4000);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      });
+    }
+
+    // t=1.5s: James's frustration message slides in
+    const pet1 = setTimeout(() => { if (_sentRef.sent) return; insertFrustrationBubble(); }, 1500);
+    // t=2.5s: draft replaces → buttons exit, body close, "composing a reply ●●●"
+    const pet2 = setTimeout(() => {
+      if (_sentRef.sent) return;
+      v2ReplaceDraft(draftPanel, draftBody, null);
+    }, 2500);
+    // t=5s: label morphs to "proposed handover"
+    const pet3 = setTimeout(() => {
+      if (_sentRef.sent) return;
+      v2SetLabel(draftPanel, 'proposed handover', false);
+    }, 5000);
+    // t=7s: panel exits → handover card + handoff strip
+    const pet4 = setTimeout(() => {
+      if (_sentRef.sent) return;
+      showEscalationCard();
+    }, 7000);
+    window._v2EscTimers.push(pet1, pet2, pet3, pet4);
+    return;
+  }
 
   // t=1.5s: James's second message (frustration) slides in
   const t1 = setTimeout(() => {
@@ -2715,7 +2908,7 @@ function runV2EscalationFlow(convId, suffix) {
       pContainer.style.opacity = '0';
       pContainer.style.transform = 'translateY(10px)';
       pContainer.insertAdjacentHTML('beforeend',
-        renderPendingAction({ id: 'v2-esc-1', type: 'escalate-v2' }, convId));
+        renderPendingAction({ id: 'v2-esc-1', type: 'handover-v2' }, convId));
       // Hide the ✓ / ✗ buttons — card is purely informational
       const btnGroup = pContainer.querySelector('.inbox-pa-btn-group');
       if (btnGroup) btnGroup.hidden = true;
@@ -2735,13 +2928,13 @@ function runV2EscalationFlow(convId, suffix) {
         handoffContainer.style.opacity = '0';
         handoffContainer.style.transform = 'translateY(10px)';
         handoffContainer.innerHTML = `
-          <div class="inbox-v2-handoff">
-            <div class="inbox-v2-handoff-icon">
-              <img src="daan.png" alt="Daan" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
-            </div>
-            <div class="inbox-v2-handoff-text">
-              <span class="inbox-v2-handoff-title">You can take over now</span>
-              <span class="inbox-v2-handoff-sub">· AI-licia has stepped aside</span>
+          <div class="inbox-pa-row inbox-pa-row--info">
+            <div class="inbox-pa-default">
+              <div class="inbox-pa-icon-wrap">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5" r="2.5"/><path d="M3 13.5a5 5 0 0110 0"/></svg>
+              </div>
+              <span class="inbox-pa-desc-bold">You can take over now</span>
+              <span class="inbox-pa-desc-dim">· AI-licia has stepped aside</span>
             </div>
           </div>`;
         msgContainer.insertBefore(handoffContainer, composer);
@@ -2765,9 +2958,9 @@ function runV2EscalationFlow(convId, suffix) {
   }, 2500);
   window._v2EscTimers.push(t2);
 
-  // t=5s: AI pivots — label morphs to "proposed escalation" (no dots, no body)
+  // t=5s: AI pivots — label morphs to "proposed handover" (no dots, no body)
   const t3 = setTimeout(() => {
-    v2SetLabel(draftPanel, 'proposed escalation', false);
+    v2SetLabel(draftPanel, 'proposed handover', false);
   }, 5000);
   window._v2EscTimers.push(t3);
 
@@ -2799,8 +2992,8 @@ function runV2FedericoFlow(convId, suffix) {
   if (window._v2BarryTimers)      window._v2BarryTimers.forEach(clearTimeout);
   window._v2FedericoTimers = [];
 
-  // Reset panel
-  draftPanel.hidden = true; draftPanel.style.opacity = '0';
+  // Reset panel — keep visible in standby (AI-licia presence persists)
+  draftPanel.hidden = false; draftPanel.style.opacity = '1'; draftPanel.style.transform = '';
   draftBody.classList.remove('composer-v2-draft-body--open'); draftBody.innerHTML = '';
   const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
   if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
@@ -2809,7 +3002,7 @@ function runV2FedericoFlow(convId, suffix) {
   // ── Helpers ──
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
-    el.className = 'inbox-msg inbox-msg--agent';
+    el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
     el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
@@ -2884,6 +3077,68 @@ function runV2FedericoFlow(convId, suffix) {
     document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', onDismiss, { once: true });
   }
 
+  // Preloaded path — show initial reply instantly, then play existing
+  // bigMsg + round-1-draft sequence at original timings
+  if (conv._draftReadyForPreload && conv._initialReply) {
+    conv._draftReadyForPreload = false;
+    const initialText = conv._initialReply.text;
+    v2ShowPreloaded(draftPanel, draftBody, initialText.replace(/\n/g, '<br>'));
+
+    const _preRef = { sent: false };
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      buildButtons(hdrP, initialText,
+        // Send preloaded — cancel Federico flow and go to on standby
+        () => {
+          if (_preRef.sent) return;
+          _preRef.sent = true;
+          if (window._v2FedericoTimers) window._v2FedericoTimers.forEach(clearTimeout);
+          window._v2FedericoTimers = [];
+          const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+          insertAgentBubble(initialText, conv._initialReply.time);
+          v2ButtonsExit(hdrP, () => {
+            v2BodyClose(draftBody);
+            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+          });
+          setTimeout(() => v2SetLabel(draftPanel, 'on standby', false), 4000);
+          msgContainer.scrollTop = msgContainer.scrollHeight;
+        },
+        () => { showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer }); }
+      );
+    }
+
+    // t=1.5s: bigMsg arrives
+    const pft1 = setTimeout(() => { if (_preRef.sent) return; insertCustomerBubble(esc.bigMsg); }, 1500);
+    // t=2.5s: draft replaces → buttons exit, body close, "composing a reply ●●●"
+    const pft2 = setTimeout(() => { if (_preRef.sent) return; v2ReplaceDraft(draftPanel, draftBody, null); }, 2500);
+    // t=4.5s: response preview + aiReply1 + buttons
+    const pft3 = setTimeout(() => {
+      if (_preRef.sent) return;
+      v2SetLabel(draftPanel, 'response preview', false);
+      setTimeout(() => {
+        v2BodyOpen(draftBody, esc.aiReply1.text.replace(/\n/g, '<br>'));
+        draftPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        const hdr = draftPanel.querySelector('.composer-v2-draft-header-right');
+        if (hdr) {
+          buildButtons(hdr, esc.aiReply1.text,
+            () => {
+              const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+              insertAgentBubble(esc.aiReply1.text, esc.aiReply1.time);
+              v2ButtonsExit(hdr, () => {
+                v2BodyClose(draftBody);
+                v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+              });
+              setTimeout(() => startRound2(), 4000);
+            },
+            () => { showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer }); }
+          );
+        }
+      }, 180);
+    }, 4500);
+    window._v2FedericoTimers.push(pft1, pft2, pft3);
+    return;
+  }
+
   // ── ROUND 1 ──
   const t1 = setTimeout(() => { insertCustomerBubble(esc.bigMsg); }, 1500);
   window._v2FedericoTimers.push(t1);
@@ -2909,7 +3164,7 @@ function runV2FedericoFlow(convId, suffix) {
             insertAgentBubble(esc.aiReply1.text, esc.aiReply1.time);
             v2ButtonsExit(hdr, () => {
               v2BodyClose(draftBody);
-              v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+              v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
             });
             setTimeout(() => startRound2(), 4000);
           },
@@ -2949,10 +3204,10 @@ function runV2FedericoFlow(convId, suffix) {
               insertAgentBubble(esc.aiReply2.text, esc.aiReply2.time);
               v2ButtonsExit(hdr2, () => {
                 v2BodyClose(draftBody);
-                v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+                v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
               });
               setTimeout(() => {
-                v2PanelExit(draftPanel, () => showFedericoCard());
+                v2PanelHide(draftPanel, () => showFedericoCard());
               }, 4200);
               msgContainer.scrollTop = msgContainer.scrollHeight;
             },
@@ -3030,14 +3285,60 @@ function runV2PeopleTeamFlow(convId, suffix) {
     .forEach(arr => arr?.forEach(clearTimeout));
   window._v2PeopleTeamTimers = [];
 
-  // Reset panel
-  draftPanel.hidden = true; draftPanel.style.opacity = '0';
+  // Reset panel — keep visible in standby (AI-licia presence persists)
+  draftPanel.hidden = false; draftPanel.style.opacity = '1'; draftPanel.style.transform = '';
   draftBody.classList.remove('composer-v2-draft-body--open'); draftBody.innerHTML = '';
   const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
   if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
   if (composer) composer.hidden = false;
 
   let agentBubbleEl = null; // stored ref for avatar swap on approve
+
+  // Preloaded path — show draft immediately on first open
+  if (conv._draftReadyForPreload) {
+    conv._draftReadyForPreload = false;
+    v2ShowPreloaded(draftPanel, draftBody, te.greeting.text.replace(/\n/g, '<br>'));
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      hdrP.innerHTML = `
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        </button>
+        <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+          Send
+          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+        </button>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        </button>`;
+      v2ButtonsEnter(hdrP);
+      window._v2CopiedFlag = false;
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+        window._v2CopiedFlag = true;
+        navigator.clipboard.writeText(te.greeting.text);
+        const btn = e.currentTarget;
+        btn.querySelector('.copy-tooltip')?.remove();
+        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
+        btn.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      });
+      document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+        const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+        agentBubbleEl = insertAgentBubble(te.greeting.text, te.greeting.time);
+        v2ButtonsExit(hdrP, () => {
+          v2BodyClose(draftBody);
+          v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+        });
+        setTimeout(() => { v2PanelExit(draftPanel, () => showPeopleTeamCard()); }, 4200);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      }, { once: true });
+      document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+        showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer });
+      }, { once: true });
+    }
+    return;
+  }
 
   // t=1.5s: panel enters — "composing a reply ●●●"
   const t1 = setTimeout(() => {
@@ -3090,7 +3391,7 @@ function runV2PeopleTeamFlow(convId, suffix) {
           // Exit buttons + close body
           v2ButtonsExit(hdr, () => {
             v2BodyClose(draftBody);
-            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
           });
           // Panel exits → action card (after 4s feedback label)
           setTimeout(() => {
@@ -3111,7 +3412,7 @@ function runV2PeopleTeamFlow(convId, suffix) {
   // ── Helper: insert agent bubble; returns the element ──
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
-    el.className = 'inbox-msg inbox-msg--agent';
+    el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
     el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
@@ -3213,12 +3514,58 @@ function runV2CloseFlow(convId, suffix) {
     .forEach(arr => arr?.forEach(clearTimeout));
   window._v2CloseTimers = [];
 
-  // Reset panel
-  draftPanel.hidden = true; draftPanel.style.opacity = '0';
+  // Reset panel — keep visible in standby (AI-licia presence persists)
+  draftPanel.hidden = false; draftPanel.style.opacity = '1'; draftPanel.style.transform = '';
   draftBody.classList.remove('composer-v2-draft-body--open'); draftBody.innerHTML = '';
   const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
   if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
   if (composer) composer.hidden = false;
+
+  // Preloaded path — show draft immediately on first open
+  if (conv._draftReadyForPreload) {
+    conv._draftReadyForPreload = false;
+    v2ShowPreloaded(draftPanel, draftBody, cd.agentReply.text.replace(/\n/g, '<br>'));
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      hdrP.innerHTML = `
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        </button>
+        <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+          Send
+          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+        </button>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        </button>`;
+      v2ButtonsEnter(hdrP);
+      window._v2CopiedFlag = false;
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+        window._v2CopiedFlag = true;
+        navigator.clipboard.writeText(cd.agentReply.text);
+        const btn = e.currentTarget;
+        btn.querySelector('.copy-tooltip')?.remove();
+        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
+        btn.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      });
+      document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+        const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+        insertAgentBubble(cd.agentReply.text, cd.agentReply.time);
+        v2ButtonsExit(hdrP, () => {
+          v2BodyClose(draftBody);
+          v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+        });
+        setTimeout(() => v2PanelExit(draftPanel, startPhase2), 4200);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      }, { once: true });
+      document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+        showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer });
+      }, { once: true });
+    }
+    return;
+  }
 
   // t=1.5s: panel enters — "composing a reply ●●●"
   const t1 = setTimeout(() => {
@@ -3269,7 +3616,7 @@ function runV2CloseFlow(convId, suffix) {
           insertAgentBubble(cd.agentReply.text, cd.agentReply.time);
           v2ButtonsExit(hdr, () => {
             v2BodyClose(draftBody);
-            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
           });
           setTimeout(() => v2PanelExit(draftPanel, startPhase2), 4200);
           msgContainer.scrollTop = msgContainer.scrollHeight;
@@ -3315,7 +3662,7 @@ function runV2CloseFlow(convId, suffix) {
   // ── Helper: insert agent bubble ──
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
-    el.className = 'inbox-msg inbox-msg--agent';
+    el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
     el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
@@ -3515,12 +3862,58 @@ function runV2LabelFlow(convId, suffix) {
     .forEach(arr => arr?.forEach(clearTimeout));
   window._v2LabelTimers = [];
 
-  // Reset panel
-  draftPanel.hidden = true; draftPanel.style.opacity = '0';
+  // Reset panel — keep visible in standby (AI-licia presence persists)
+  draftPanel.hidden = false; draftPanel.style.opacity = '1'; draftPanel.style.transform = '';
   draftBody.classList.remove('composer-v2-draft-body--open'); draftBody.innerHTML = '';
   const hdr0 = draftPanel.querySelector('.composer-v2-draft-header-right');
   if (hdr0) { hdr0.style.visibility = 'hidden'; hdr0.style.opacity = '1'; hdr0.style.transform = ''; }
   if (composer) composer.hidden = false;
+
+  // Preloaded path — show draft immediately on first open
+  if (conv._draftReadyForPreload) {
+    conv._draftReadyForPreload = false;
+    v2ShowPreloaded(draftPanel, draftBody, ld.agentReply.text.replace(/\n/g, '<br>'));
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      hdrP.innerHTML = `
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        </button>
+        <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+          Send
+          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+        </button>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        </button>`;
+      v2ButtonsEnter(hdrP);
+      window._v2CopiedFlag = false;
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+        window._v2CopiedFlag = true;
+        navigator.clipboard.writeText(ld.agentReply.text);
+        const btn = e.currentTarget;
+        btn.querySelector('.copy-tooltip')?.remove();
+        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
+        btn.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      });
+      document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+        const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+        insertAgentBubble(ld.agentReply.text, ld.agentReply.time);
+        v2ButtonsExit(hdrP, () => {
+          v2BodyClose(draftBody);
+          v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+        });
+        setTimeout(() => startPhase2(), 4200);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      }, { once: true });
+      document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+        showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer });
+      }, { once: true });
+    }
+    return;
+  }
 
   // t=1.5s: panel enters — "composing a reply ●●●"
   const t1 = setTimeout(() => {
@@ -3571,7 +3964,7 @@ function runV2LabelFlow(convId, suffix) {
           insertAgentBubble(ld.agentReply.text, ld.agentReply.time);
           v2ButtonsExit(hdr, () => {
             v2BodyClose(draftBody);
-            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
           });
           // Keep panel visible — start phase 2 after 4s feedback label
           setTimeout(() => startPhase2(), 4200);
@@ -3644,7 +4037,7 @@ function runV2LabelFlow(convId, suffix) {
             insertAgentBubble(ld.upgradeReply.text, ld.upgradeReply.time);
             v2ButtonsExit(hdr2, () => {
               v2BodyClose(draftBody);
-              v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+              v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
             });
             // Keep panel visible — morph to 'on standby' after 4s feedback label
             setTimeout(() => v2SetLabel(draftPanel, 'on standby', false), 4200);
@@ -3674,7 +4067,7 @@ function runV2LabelFlow(convId, suffix) {
   // ── Helper: insert agent bubble ──
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
-    el.className = 'inbox-msg inbox-msg--agent';
+    el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
     el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
@@ -3858,7 +4251,7 @@ function runV2BarryFlow(convId, suffix) {
   // ── Helper: insert Daan agent bubble ──
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
-    el.className = 'inbox-msg inbox-msg--agent';
+    el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
     el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
@@ -3935,13 +4328,13 @@ function runV2BarryFlow(convId, suffix) {
       handoffContainer.className = 'inbox-pending-container';
       handoffContainer.style.cssText = 'opacity:0;transform:translateY(10px)';
       handoffContainer.innerHTML = `
-        <div class="inbox-v2-handoff">
-          <div class="inbox-v2-handoff-icon">
-            <img src="daan.png" alt="Daan" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
-          </div>
-          <div class="inbox-v2-handoff-text">
-            <span class="inbox-v2-handoff-title">You can take over now</span>
-            <span class="inbox-v2-handoff-sub">· AI-licia has stepped aside</span>
+        <div class="inbox-pa-row inbox-pa-row--info">
+          <div class="inbox-pa-default">
+            <div class="inbox-pa-icon-wrap">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5" r="2.5"/><path d="M3 13.5a5 5 0 0110 0"/></svg>
+            </div>
+            <span class="inbox-pa-desc-bold">You can take over now</span>
+            <span class="inbox-pa-desc-dim">· AI-licia has stepped aside</span>
           </div>
         </div>`;
       msgContainer.insertBefore(handoffContainer, composer);
@@ -3953,6 +4346,60 @@ function runV2BarryFlow(convId, suffix) {
     }, 350);
 
     msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  // Preloaded path — show draft immediately on first open
+  if (conv._draftReadyForPreload) {
+    conv._draftReadyForPreload = false;
+    v2ShowPreloaded(draftPanel, draftBody, bd.agentReply.text.replace(/\n/g, '<br>'));
+    const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
+    if (hdrP) {
+      hdrP.innerHTML = `
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        </button>
+        <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
+          Send
+          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
+        </button>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        </button>`;
+      v2ButtonsEnter(hdrP);
+      window._v2CopiedFlag = false;
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
+        window._v2CopiedFlag = true;
+        navigator.clipboard.writeText(bd.agentReply.text);
+        const btn = e.currentTarget;
+        btn.querySelector('.copy-tooltip')?.remove();
+        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
+        btn.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
+        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      });
+      document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
+        const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
+        insertAgentBubble(bd.agentReply.text, bd.agentReply.time);
+        v2ButtonsExit(hdrP, () => {
+          v2BodyClose(draftBody);
+          v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
+        });
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+        const st1 = setTimeout(() => { insertInternalNote(); }, 800);
+        const st2 = setTimeout(() => {
+          v2PanelEnter(draftPanel);
+          v2SetLabel(draftPanel, 'composing a reply', true);
+          draftPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 4300);
+        const st3 = setTimeout(() => { v2SetLabel(draftPanel, 'proposed escalation', false); }, 5900);
+        const st4 = setTimeout(() => { v2PanelExit(draftPanel, () => showBarryEscalationCard()); }, 7900);
+        window._v2BarryTimers.push(st1, st2, st3, st4);
+      }, { once: true });
+      document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
+        showDismissBanner({ panel: draftPanel, suffix, msgContainer, composer });
+      }, { once: true });
+    }
+    return;
   }
 
   // ── t=1.5s: panel springs in — "composing a reply ●●●" ──
@@ -4004,7 +4451,7 @@ function runV2BarryFlow(convId, suffix) {
           insertAgentBubble(bd.agentReply.text, bd.agentReply.time);
           v2ButtonsExit(hdr, () => {
             v2BodyClose(draftBody);
-            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'marked as a perfect example', false);
+            v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
           });
           msgContainer.scrollTop = msgContainer.scrollHeight;
 
@@ -4156,6 +4603,12 @@ const PENDING_ACTION_CONFIG = {
     title:    () => 'Escalated to human agent',
     dimText:  () => 'AI-licia would have',
     boldText: () => 'escalated this to human',
+    chips: ['Not urgent', 'AI can handle', 'Wrong team', 'Other']
+  },
+  'handover-v2': {
+    title:    () => 'Handed over to human agent',
+    dimText:  () => 'AI-licia would have',
+    boldText: () => 'handed this over to human',
     chips: ['Not urgent', 'AI can handle', 'Wrong team', 'Other']
   },
   'assign-federico': {

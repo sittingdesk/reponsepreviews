@@ -2976,13 +2976,20 @@ body {
 }
 
 .composer-v2-draft {
-  background: var(--purple-100);
-  border: 1px solid var(--purple-200);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 12px;
   margin: 0 0 8px;
   transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+              transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform, opacity;
+}
+/* Purple fill appears only when the body is expanded with draft content */
+.composer-v2-draft:has(.composer-v2-draft-body--open) {
+  background: var(--purple-100);
+  border-color: var(--purple-200);
 }
 .composer-v2-draft-header {
   display: flex;
@@ -3447,6 +3454,17 @@ body {
   border-style: dashed;
 }
 /* AI-sent message bubble — uses standard .inbox-msg--agent card layout */
+/* Subtle "emerge from AI-licia panel" animation when a reply is sent */
+@keyframes inboxAiSentEmerge {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.94); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.inbox-msg--ai-sent {
+  transform-origin: bottom right;
+  animation: inboxAiSentEmerge 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 .inbox-msg-approval {
   display: flex;
   align-items: center;
