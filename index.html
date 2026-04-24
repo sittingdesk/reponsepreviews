@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Low Risk Rollout</title>
-  <link rel="stylesheet" href="styles.css?v=74">
+  <link rel="stylesheet" href="styles.css?v=76">
   <script src="https://mcp.figma.com/mcp/html-to-design/capture.js"></script>
 </head>
 <body>
@@ -426,7 +426,7 @@
               <div class="behavior-section-title">Connect to a channel</div>
               <div class="behavior-section-desc">Each channel can have one AI Agent connected to it</div>
             </div>
-            <span class="behavior-section-badge config-badge-active"><span class="config-dot-green"></span> Active on 3 channels</span>
+            <span id="config-mode-badge" class="behavior-section-badge config-badge-active"><span class="config-dot-green"></span> Supervised mode · 3 channels</span>
             <svg class="behavior-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6l4 4 4-4"/></svg>
           </div>
           <div class="behavior-section-body">
@@ -436,26 +436,48 @@
               <span class="config-tag config-tag--purple">Whatsapp Business Channel Test (works) <button class="config-tag-x">&times;</button></span>
               <svg class="config-tag-input-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6l4 4 4-4"/></svg>
             </div>
-            <h4 class="config-subsection-title">AI Agent conversation modes</h4>
-            <div class="config-mode-card config-mode-card--active">
-              <div class="config-mode-card-icon">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="M7 10l2 2 4-4"/></svg>
+            <h4 class="config-subsection-title">Choose between response mode</h4>
+            <div class="config-tile-group">
+
+              <!-- Off -->
+              <div class="config-tile" data-mode="off">
+                <div class="config-tile-icon config-tile-icon--grey">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.75 2a.75.75 0 0 0-1.5 0v10a.75.75 0 0 0 1.5 0V2zM6.814 5.583a.75.75 0 1 0-.943-1.166c-.408.33-.789.692-1.138 1.083A9.717 9.717 0 0 0 2.25 12c0 5.385 4.365 9.75 9.75 9.75s9.75-4.365 9.75-9.75c0-2.497-.94-4.776-2.483-6.5-.35-.39-.73-.753-1.138-1.083a.75.75 0 0 0-.944 1.166A8.216 8.216 0 0 1 20.25 12 8.25 8.25 0 1 1 6.815 5.583z" fill="currentColor"/></g></svg>
+                </div>
+                <div class="config-tile-info">
+                  <div class="config-tile-title">Off</div>
+                  <div class="config-tile-desc">Keep the AI Agent deactivated on the selected channels.</div>
+                </div>
+                <button class="config-radio" aria-label="Select Off"></button>
               </div>
-              <div class="config-mode-card-info">
-                <div class="config-mode-card-title">Autopilot</div>
-                <div class="config-mode-card-desc">Allow AI Agent to handle incoming messages on connected channels, automatically responding to simple questions and forwarding complex issues to your team of agents.</div>
+
+              <!-- Supervised mode (selected by default) -->
+              <div class="config-tile config-tile--selected" data-mode="supervised">
+                <div class="config-tile-icon config-tile-icon--sky">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.16 4.904a1.25 1.25 0 0 1 1.68 0c.02.017.044.04.13.127l.127.128a1.25 1.25 0 0 1 0 1.682 4.649 4.649 0 0 1-.127.129l-.807.807a1.903 1.903 0 0 1-1.94-1.94l.808-.807c.085-.085.11-.11.128-.126zm-2.208 2.205l-8.168 8.168c-.483.483-.665.668-.811.871a3.25 3.25 0 0 0-.346.61c-.099.23-.164.48-.33 1.144l-.266 1.067 1.067-.267c.663-.165.914-.23 1.144-.33a3.25 3.25 0 0 0 .61-.345c.203-.146.388-.327.871-.81l8.169-8.17a3.428 3.428 0 0 1-1.94-1.939zm4.898-3.315a2.75 2.75 0 0 0-3.868.163l-.012.013L5.723 14.216l-.044.044c-.425.425-.698.699-.924 1.013-.2.278-.37.577-.505.891-.153.355-.247.731-.392 1.314l-.016.06-.57 2.28a.75.75 0 0 0 .91.91l2.28-.57.06-.015c.583-.146.959-.24 1.314-.393.314-.136.613-.305.892-.505.314-.226.587-.5 1.012-.924l.044-.044L20.03 8.03l.013-.012c.067-.067.12-.12.163-.168a2.75 2.75 0 0 0-.163-3.867l-.012-.013-.013-.013c-.067-.067-.12-.119-.168-.163z" fill="currentColor"/></g></svg>
+                </div>
+                <div class="config-tile-info">
+                  <div class="config-tile-title-row">
+                    <span class="config-tile-title">Supervised mode</span>
+                    <span class="config-tile-badge">Recommended to start</span>
+                  </div>
+                  <div class="config-tile-desc">Supervised mode lets your AI agent run, while you stay in control by reviewing and approving every reply before it's sent. It's designed to build confidence and trust, so you can safely test with real conversations before going live on autopilot.</div>
+                </div>
+                <button class="config-radio config-radio--selected" aria-label="Select Supervised mode"></button>
               </div>
-              <button class="config-toggle config-toggle--on" data-toggle="autopilot"><span class="config-toggle-knob"></span></button>
-            </div>
-            <div class="config-mode-card">
-              <div class="config-mode-card-icon">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l2 4 4.5.5-3.25 3.25.75 4.75L10 13l-4 2.5.75-4.75L3.5 7.5 8 7z"/></svg>
+
+              <!-- Autopilot -->
+              <div class="config-tile" data-mode="autopilot">
+                <div class="config-tile-icon config-tile-icon--purple">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.75 12A8.25 8.25 0 1 1 12 20.25H4.395c.067-.104.128-.202.184-.293.18-.3.326-.575.416-.86.076-.237.135-.447.163-.678.029-.23.023-.448.008-.697-.02-.313-.12-.682-.255-1.104-.138-.434-.339-.998-.598-1.725l-.005-.015c-.32-.899-.558-1.901-.558-2.878zM12 2.25c-5.385 0-9.75 4.365-9.75 9.75 0 1.206.291 2.386.645 3.38.265.746.457 1.287.587 1.694.135.423.18.634.187.742.014.222.012.33 0 .42a2.24 2.24 0 0 1-.103.406c-.037.117-.11.274-.27.538-.161.265-.382.597-.695 1.067l-.225.337A.75.75 0 0 0 3 21.75h9c5.385 0 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V15a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V9z" fill="currentColor"/></g></svg>
+                </div>
+                <div class="config-tile-info">
+                  <div class="config-tile-title">Autopilot</div>
+                  <div class="config-tile-desc">Automatically assign the AI Agent to incoming conversations on activated channels. Your AI Agent will respond to questions and hand over complex tickets when required.</div>
+                </div>
+                <button class="config-radio" aria-label="Select Autopilot"></button>
               </div>
-              <div class="config-mode-card-info">
-                <div class="config-mode-card-title">Suggested replies</div>
-                <div class="config-mode-card-desc">Activate AI Agent on-demand, providing valuable support without automatically sending messages on their behalf, increasing agent productivity while maintaining control.</div>
-              </div>
-              <button class="config-toggle" data-toggle="suggested"><span class="config-toggle-knob"></span></button>
+
             </div>
           </div>
         </div>
@@ -1554,6 +1576,6 @@
   </div>
 </div>
 
-<script src="script.js?v=84"></script>
+<script src="script.js?v=88"></script>
 </body>
 </html>

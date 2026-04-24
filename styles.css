@@ -2996,7 +2996,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  padding: 16px;
+  padding: 16px 16px 0;
 }
 .composer-v2-draft-header-left {
   display: flex;
@@ -3095,24 +3095,33 @@ body {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
-  transition: max-height 0.38s cubic-bezier(0.16, 1, 0.3, 1),
-              opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              padding-bottom 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(-4px);
+  /* Closing direction: text fades + flies up fast, container deflates behind it */
+  transition: opacity 0.12s ease-out,
+              transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.08s,
+              padding-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.08s;
 }
 .composer-v2-draft-body--open {
   max-height: 500px;
   opacity: 1;
   padding-bottom: 16px;
+  transform: translateY(0);
+  /* Opening direction: soft reveal, keep the existing feel */
+  transition: max-height 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              padding-bottom 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .composer-v2-btn--approve {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px 8px 12px;
+  padding: 6px 12px;
   border: none;
   border-radius: 37px;
-  height: 36px;
+  height: 32px;
   background: var(--purple-600);
   color: var(--white);
   font-size: 14px;
@@ -3263,41 +3272,36 @@ body {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--purple-300);
-  border-radius: 50%;
-  background: transparent;
+  border: none;
+  border-radius: 24px;
+  background: var(--purple-200);
   color: var(--purple-600);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s;
   flex-shrink: 0;
 }
 .composer-v2-btn--dismiss:hover {
-  background: var(--purple-200);
-  border-color: var(--purple-400);
+  background: var(--purple-300);
 }
-.composer-v2-btn--dismiss svg { width: 14px; height: 14px; }
 
-/* ── Copy icon button (same style as dismiss) ── */
+/* ── Copy icon button (paste into composer) ── */
 .composer-v2-btn--copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--purple-300);
-  border-radius: 50%;
-  background: transparent;
+  border: none;
+  border-radius: 24px;
+  background: var(--purple-200);
   color: var(--purple-600);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s;
   flex-shrink: 0;
-  position: relative;
 }
 .composer-v2-btn--copy:hover {
-  background: var(--purple-200);
-  border-color: var(--purple-400);
+  background: var(--purple-300);
 }
-.composer-v2-btn--copy svg { width: 14px; height: 14px; }
 
 /* ── Copy tooltip ── */
 .copy-tooltip {
@@ -3463,6 +3467,21 @@ body {
 .inbox-msg--ai-sent {
   transform-origin: bottom right;
   animation: inboxAiSentEmerge 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Telegram-style send: ghost text flies from draft panel to bubble slot */
+.v2-send-ghost {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--grey-800);
+  padding: 0 16px;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 1;
+  transform-origin: top left;
+  transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.24s cubic-bezier(0.4, 0, 0.2, 1) 0.2s;
+  will-change: transform, opacity;
 }
 
 .inbox-msg-approval {
@@ -4919,52 +4938,106 @@ body {
   flex-shrink: 0;
 }
 
-/* Conversation mode cards */
+/* Conversation mode tiles (radio selection) */
 .config-subsection-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--grey-800);
-  margin: 16px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--grey-900);
+  margin: 0 0 12px;
   font-family: 'Inter', sans-serif;
 }
-.config-mode-card {
+.config-tile-group {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 12px;
+}
+.config-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   padding: 16px;
   background: var(--white);
   border: 1px solid var(--grey-300);
-  border-radius: 10px;
-  margin-bottom: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s;
 }
-.config-mode-card--active {
-  border-color: var(--leaf-300);
-  background: var(--leaf-100);
+.config-tile--selected {
+  border: 2px solid var(--leaf-500);
 }
-.config-mode-card-icon {
-  width: 32px;
-  height: 32px;
+.config-tile-icon {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--grey-600);
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
 }
-.config-mode-card--active .config-mode-card-icon { color: var(--leaf-700); }
-.config-mode-card-icon svg { width: 20px; height: 20px; }
-.config-mode-card-info { flex: 1; min-width: 0; }
-.config-mode-card-title {
-  font-size: 14px;
-  font-weight: 700;
+.config-tile-icon--grey   { background: var(--grey-300);   color: var(--grey-800); }
+.config-tile-icon--sky    { background: var(--sky-200);    color: var(--sky-800); }
+.config-tile-icon--purple { background: var(--purple-200); color: var(--purple-800); }
+.config-tile-info {
+  flex: 1;
+  min-width: 0;
+}
+.config-tile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.config-tile-title {
+  font-size: 16px;
+  font-weight: 600;
   color: var(--grey-900);
-  margin-bottom: 2px;
   font-family: 'Inter', sans-serif;
 }
-.config-mode-card-desc {
-  font-size: 13px;
-  color: var(--grey-600);
-  line-height: 1.4;
+.config-tile-badge {
+  background: var(--grey-300);
+  color: var(--grey-700);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
   font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+}
+.config-tile-desc {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--grey-700);
+  line-height: 20px;
+  font-family: 'Inter', sans-serif;
+  margin-top: 4px;
+}
+.config-radio {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border: 2px solid var(--grey-400);
+  border-radius: 50%;
+  background: var(--white);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s, background 0.12s;
+}
+.config-radio--selected {
+  background: var(--leaf-600);
+  border-color: var(--leaf-600);
+}
+.config-radio--selected::after {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 7px;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 7' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 3.5L3.5 6L9 1' stroke='white' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
 }
 
 /* Journeys empty state */

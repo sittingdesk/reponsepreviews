@@ -619,7 +619,7 @@ const CONVERSATIONS_V2 = [
     lastActivity: 'Yesterday',
     unread: false,
     preview: 'Hello, I would like to extend my current stay by two additional nights...',
-    useCase: 'Escalation — To user',
+    useCase: 'Assign to user',
     messages: [
       { id: 'v2-m3-1', role: 'customer', text: 'Hello, I would like to extend my current stay by two additional nights. Could you check availability?', time: 'Yesterday' }
     ],
@@ -1711,22 +1711,33 @@ document.querySelectorAll('.behavior-section-header').forEach(header => {
   // Skip static config sections (no accordion behavior)
   if (header.closest('.config-section-static')) return;
   header.addEventListener('click', (e) => {
-    // Don't toggle accordion when clicking a toggle switch
-    if (e.target.closest('.config-toggle')) return;
+    // Don't toggle accordion when clicking a tile
+    if (e.target.closest('.config-tile')) return;
     header.closest('.behavior-section').classList.toggle('behavior-section--collapsed');
   });
 });
 
-// ── CONFIGURATION — Toggle switches ──
-document.querySelectorAll('.config-toggle').forEach(toggle => {
-  toggle.addEventListener('click', (e) => {
+// ── CONFIGURATION — Response mode tile selection ──
+document.querySelectorAll('.config-tile').forEach(tile => {
+  tile.addEventListener('click', (e) => {
     e.stopPropagation();
-    toggle.classList.toggle('config-toggle--on');
-    // Show/hide associated sub-section
-    const subId = toggle.dataset.sub;
-    if (subId) {
-      const sub = document.getElementById(subId);
-      if (sub) sub.hidden = !toggle.classList.contains('config-toggle--on');
+    document.querySelectorAll('.config-tile').forEach(t => {
+      t.classList.remove('config-tile--selected');
+      t.querySelector('.config-radio')?.classList.remove('config-radio--selected');
+    });
+    tile.classList.add('config-tile--selected');
+    tile.querySelector('.config-radio')?.classList.add('config-radio--selected');
+    // Update badge
+    const badge = document.getElementById('config-mode-badge');
+    if (badge) {
+      const mode = tile.dataset.mode;
+      if (mode === 'off') {
+        badge.hidden = true;
+      } else {
+        badge.hidden = false;
+        const label = mode === 'supervised' ? 'Supervised mode' : 'Autopilot';
+        badge.innerHTML = `<span class="config-dot-green"></span> ${label} · 3 channels`;
+      }
     }
   });
 });
@@ -2367,6 +2378,86 @@ function v2PanelHide(panel, cb) {
     if (cb) cb();
   }, 220);
 }
+// Telegram-style send: a ghost shaped like the destination bubble appears
+// at the source panel's position, then flies up to the thread slot. Because
+// the ghost wears its destination dimensions from the start, there is no
+// text-reflow pop at handoff.
+function v2FlyDraftToBubble(srcBody, targetBubbleEl) {
+  if (!srcBody || !targetBubbleEl) return;
+  const srcRect = srcBody.getBoundingClientRect();
+  if (!srcRect.width || !srcRect.height) return;
+
+  // Measure the destination bubble while it is still at natural layout
+  // (v2ExpandSentBubble has not yet collapsed it).
+  const innerBubble = targetBubbleEl.querySelector('.inbox-msg-bubble') || targetBubbleEl;
+  const dstRect = innerBubble.getBoundingClientRect();
+  if (!dstRect.width || !dstRect.height) return;
+
+  // Clone the outer message so the ghost carries the bubble's full styling
+  // (card, avatar, footer). This means text inside wraps at destination width
+  // from the start — no reflow during flight.
+  const ghost = targetBubbleEl.cloneNode(true);
+  ghost.classList.remove('inbox-msg--ai-sent'); // disable old keyframe (safety)
+  ghost.style.cssText = `
+    position: fixed;
+    top: ${srcRect.top}px;
+    left: ${dstRect.left}px;
+    width: ${dstRect.width}px;
+    margin: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 1;
+    transform: translateY(0);
+    will-change: transform, opacity;
+  `;
+  document.body.appendChild(ghost);
+
+  // Snap-hide the draft body text so source doesn't linger visually.
+  const prevTransition = srcBody.style.transition;
+  const prevOpacity    = srcBody.style.opacity;
+  srcBody.style.transition = 'none';
+  srcBody.style.opacity = '0';
+
+  // Fly to destination — pure vertical translation since horizontal is already
+  // aligned. Fade out near arrival so the real bubble takes over.
+  requestAnimationFrame(() => {
+    const dy = dstRect.top - srcRect.top;
+    ghost.style.transition = `transform 0.44s cubic-bezier(0.22, 1, 0.36, 1),
+                              opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1) 0.26s`;
+    ghost.style.transform = `translateY(${dy}px)`;
+    ghost.style.opacity = '0';
+  });
+
+  setTimeout(() => {
+    ghost.remove();
+    srcBody.style.transition = prevTransition;
+    srcBody.style.opacity = prevOpacity;
+  }, 560);
+}
+// Bubble enters with a smooth height expansion — naturally pushes content above
+// upward and keeps the viewport pinned to the new message via smooth scroll.
+function v2ExpandSentBubble(bubbleEl, msgContainer) {
+  bubbleEl.style.maxHeight = '0px';
+  bubbleEl.style.overflow  = 'hidden';
+  bubbleEl.style.opacity   = '0';
+  bubbleEl.style.transform = '';
+  requestAnimationFrame(() => {
+    const h = bubbleEl.scrollHeight;
+    bubbleEl.style.transition = 'max-height 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease-out 0.18s';
+    bubbleEl.style.maxHeight = h + 'px';
+    bubbleEl.style.opacity   = '1';
+    if (msgContainer && msgContainer.scrollTo) {
+      msgContainer.scrollTo({ top: msgContainer.scrollHeight, behavior: 'smooth' });
+    } else if (msgContainer) {
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+    }
+  });
+  setTimeout(() => {
+    bubbleEl.style.maxHeight = '';
+    bubbleEl.style.overflow  = '';
+    bubbleEl.style.transition = '';
+  }, 380);
+}
 function v2BodyOpen(body, html) {
   body.innerHTML = html;
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2409,6 +2500,13 @@ function v2ButtonsExit(hdr, cb) {
   hdr.style.opacity = '0';
   hdr.style.transform = 'translateX(6px)';
   setTimeout(() => { hdr.style.visibility = 'hidden'; hdr.style.transform = ''; if (cb) cb(); }, 180);
+}
+function v2PasteToDraft(draftPanel, suffix) {
+  const body = draftPanel.querySelector('.composer-v2-draft-body');
+  const text = (body?.innerText ?? '').trim();
+  const ta = document.getElementById(`composer-textarea-${suffix}`);
+  if (ta) { ta.value = text; ta.dispatchEvent(new Event('input')); ta.focus(); }
+  v2PanelExit(draftPanel);
 }
 function v2PanelRest(panel) {
   const body = panel.querySelector('.composer-v2-draft-body');
@@ -2571,30 +2669,20 @@ function runV2ReplyFlow(convId, suffix) {
     const headerRight = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (!headerRight) return;
     headerRight.innerHTML = `
-      <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+      <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+        <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
       </button>
       <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
         Send
-        <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
       </button>
-      <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+      <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+        <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
       </button>`;
     v2ButtonsEnter(headerRight);
     window._v2CopiedFlag = false;
 
-    document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-      window._v2CopiedFlag = true;
-      navigator.clipboard.writeText(draftText);
-      const btn = e.currentTarget;
-      btn.querySelector('.copy-tooltip')?.remove();
-      const tip = document.createElement('span');
-      tip.className = 'copy-tooltip';
-      tip.textContent = 'Copied';
-      btn.appendChild(tip);
-      requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-      setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+    document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+      v2PasteToDraft(draftPanel, suffix);
     });
 
     document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
@@ -2607,8 +2695,6 @@ function runV2ReplyFlow(convId, suffix) {
       const msgContainer = document.getElementById(`inbox-thread-messages-${suffix}`);
       const bubble = document.createElement('div');
       bubble.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-      bubble.style.opacity = '0';
-      bubble.style.transform = 'translateY(10px)';
       bubble.innerHTML = `
         <div class="inbox-msg-card">
           <div class="inbox-msg-bubble inbox-msg-bubble--agent">${draftText.replace(/\n/g, '<br>')}
@@ -2621,17 +2707,13 @@ function runV2ReplyFlow(convId, suffix) {
           <span class="inbox-msg-time">Just now</span>
         </div>`;
       msgContainer.insertBefore(bubble, composer);
-      requestAnimationFrame(() => {
-        bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-        bubble.style.opacity = '1';
-        bubble.style.transform = 'translateY(0)';
-      });
+      v2FlyDraftToBubble(draftBody, bubble);
+      v2ExpandSentBubble(bubble, msgContainer);
       buttonsExit(headerRight, () => {
         bodyClose();
         transitionLabel(_wasCopied ? 'your edits logged as feedback' : 'message sent', false);
       });
       setTimeout(() => transitionLabel('on standby', false), 4000);
-      msgContainer.scrollTop = msgContainer.scrollHeight;
 
       const followUp = conv._followUps && conv._followUps[conv._followUpIndex];
       if (followUp) {
@@ -2784,28 +2866,20 @@ function runV2EscalationFlow(convId, suffix) {
     const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdrP) {
       hdrP.innerHTML = `
-        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
         </button>
         <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
           Send
-          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
         </button>
-        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
         </button>`;
       v2ButtonsEnter(hdrP);
       window._v2CopiedFlag = false;
 
-      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-        window._v2CopiedFlag = true;
-        navigator.clipboard.writeText(initialText);
-        const btn = e.currentTarget;
-        btn.querySelector('.copy-tooltip')?.remove();
-        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-        btn.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+        v2PasteToDraft(draftPanel, suffix);
       });
 
       document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', () => {
@@ -2824,7 +2898,6 @@ function runV2EscalationFlow(convId, suffix) {
         // Insert agent bubble
         const bubble = document.createElement('div');
         bubble.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-        bubble.style.opacity = '0'; bubble.style.transform = 'translateY(10px)';
         bubble.innerHTML = `
           <div class="inbox-msg-card">
             <div class="inbox-msg-bubble inbox-msg-bubble--agent">${initialText.replace(/\n/g, '<br>')}
@@ -2837,16 +2910,13 @@ function runV2EscalationFlow(convId, suffix) {
             <span class="inbox-msg-time">Just now</span>
           </div>`;
         msgContainer.insertBefore(bubble, composer);
-        requestAnimationFrame(() => {
-          bubble.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-          bubble.style.opacity = '1'; bubble.style.transform = 'translateY(0)';
-        });
+        v2FlyDraftToBubble(draftBody, bubble);
+        v2ExpandSentBubble(bubble, msgContainer);
         v2ButtonsExit(hdrP, () => {
           v2BodyClose(draftBody);
           v2SetLabel(draftPanel, _wasCopied ? 'your edits logged as feedback' : 'message sent', false);
         });
         setTimeout(() => v2SetLabel(draftPanel, 'on standby', false), 4000);
-        msgContainer.scrollTop = msgContainer.scrollHeight;
       });
     }
 
@@ -2900,7 +2970,7 @@ function runV2EscalationFlow(convId, suffix) {
 
   // Helper: show escalation card (no approve/dismiss) then handoff strip below
   function showEscalationCard() {
-    v2PanelExit(draftPanel, () => {
+    v2PanelHide(draftPanel, () => {
       // Insert escalation card — hide the approve/dismiss buttons, it's informational only
       const pContainer = document.createElement('div');
       pContainer.className = 'inbox-pending-container';
@@ -3003,7 +3073,6 @@ function runV2FedericoFlow(convId, suffix) {
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
     el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-    el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
         <div class="inbox-msg-bubble inbox-msg-bubble--agent">${text.replace(/\n/g, '<br>')}
@@ -3016,11 +3085,8 @@ function runV2FedericoFlow(convId, suffix) {
         <span class="inbox-msg-time">${time}</span>
       </div>`;
     msgContainer.insertBefore(el, composer);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-      el.style.opacity = '1'; el.style.transform = 'translateY(0)';
-    }));
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    v2FlyDraftToBubble(draftBody, el);
+    v2ExpandSentBubble(el, msgContainer);
   }
 
   function insertCustomerBubble(msgData) {
@@ -3048,30 +3114,21 @@ function runV2FedericoFlow(convId, suffix) {
 
   function buildButtons(hdr, draftText, onSend, onDismiss) {
     hdr.innerHTML = `
-      <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+      <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+        <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
       </button>
       <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
         Send
-        <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
       </button>
-      <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+      <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+        <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
       </button>`;
     setTimeout(() => v2ButtonsEnter(hdr), 80);
     // Reset copy flag when fresh preview appears
     window._v2CopiedFlag = false;
     // Copy
-    document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-      window._v2CopiedFlag = true;
-      navigator.clipboard.writeText(draftText);
-      const btn = e.currentTarget;
-      btn.querySelector('.copy-tooltip')?.remove();
-      const tip = document.createElement('span');
-      tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-      btn.appendChild(tip);
-      requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-      setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+    document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+      v2PasteToDraft(draftPanel, suffix);
     });
     document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', onSend, { once: true });
     document.getElementById(`composer-v2-dismiss-${suffix}`)?.addEventListener('click', onDismiss, { once: true });
@@ -3301,27 +3358,19 @@ function runV2PeopleTeamFlow(convId, suffix) {
     const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdrP) {
       hdrP.innerHTML = `
-        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
         </button>
         <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
           Send
-          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
         </button>
-        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
         </button>`;
       v2ButtonsEnter(hdrP);
       window._v2CopiedFlag = false;
-      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-        window._v2CopiedFlag = true;
-        navigator.clipboard.writeText(te.greeting.text);
-        const btn = e.currentTarget;
-        btn.querySelector('.copy-tooltip')?.remove();
-        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-        btn.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+        v2PasteToDraft(draftPanel, suffix);
       });
       document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
         const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
@@ -3357,30 +3406,21 @@ function runV2PeopleTeamFlow(convId, suffix) {
       const hdr = draftPanel.querySelector('.composer-v2-draft-header-right');
       if (hdr) {
         hdr.innerHTML = `
-          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
           </button>
           <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
             Send
-            <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
           </button>
-          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
           </button>`;
         setTimeout(() => v2ButtonsEnter(hdr), 80);
         window._v2CopiedFlag = false;
 
         // Copy
-        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-          window._v2CopiedFlag = true;
-          navigator.clipboard.writeText(te.greeting.text);
-          const btn = e.currentTarget;
-          btn.querySelector('.copy-tooltip')?.remove();
-          const tip = document.createElement('span');
-          tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-          btn.appendChild(tip);
-          requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-          setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+          v2PasteToDraft(draftPanel, suffix);
         });
 
         // Send (once)
@@ -3413,7 +3453,6 @@ function runV2PeopleTeamFlow(convId, suffix) {
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
     el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-    el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
         <div class="inbox-msg-bubble inbox-msg-bubble--agent">${text.replace(/\n/g, '<br>')}
@@ -3428,11 +3467,8 @@ function runV2PeopleTeamFlow(convId, suffix) {
         <span class="inbox-msg-time">${time}</span>
       </div>`;
     msgContainer.insertBefore(el, composer);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-      el.style.opacity = '1'; el.style.transform = 'translateY(0)';
-    }));
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    v2FlyDraftToBubble(draftBody, el);
+    v2ExpandSentBubble(el, msgContainer);
     return el;
   }
 
@@ -3528,27 +3564,19 @@ function runV2CloseFlow(convId, suffix) {
     const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdrP) {
       hdrP.innerHTML = `
-        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
         </button>
         <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
           Send
-          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
         </button>
-        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
         </button>`;
       v2ButtonsEnter(hdrP);
       window._v2CopiedFlag = false;
-      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-        window._v2CopiedFlag = true;
-        navigator.clipboard.writeText(cd.agentReply.text);
-        const btn = e.currentTarget;
-        btn.querySelector('.copy-tooltip')?.remove();
-        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-        btn.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+        v2PasteToDraft(draftPanel, suffix);
       });
       document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
         const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
@@ -3584,30 +3612,21 @@ function runV2CloseFlow(convId, suffix) {
       const hdr = draftPanel.querySelector('.composer-v2-draft-header-right');
       if (hdr) {
         hdr.innerHTML = `
-          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
           </button>
           <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
             Send
-            <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
           </button>
-          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
           </button>`;
         setTimeout(() => v2ButtonsEnter(hdr), 80);
         window._v2CopiedFlag = false;
 
         // Copy
-        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-          window._v2CopiedFlag = true;
-          navigator.clipboard.writeText(cd.agentReply.text);
-          const btn = e.currentTarget;
-          btn.querySelector('.copy-tooltip')?.remove();
-          const tip = document.createElement('span');
-          tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-          btn.appendChild(tip);
-          requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-          setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+          v2PasteToDraft(draftPanel, suffix);
         });
 
         // Send (once) — insert Daan bubble then start Phase 2
@@ -3663,7 +3682,6 @@ function runV2CloseFlow(convId, suffix) {
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
     el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-    el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
         <div class="inbox-msg-bubble inbox-msg-bubble--agent">${text.replace(/\n/g, '<br>')}
@@ -3678,11 +3696,8 @@ function runV2CloseFlow(convId, suffix) {
         <span class="inbox-msg-time">${time}</span>
       </div>`;
     msgContainer.insertBefore(el, composer);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-      el.style.opacity = '1'; el.style.transform = 'translateY(0)';
-    }));
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    v2FlyDraftToBubble(draftBody, el);
+    v2ExpandSentBubble(el, msgContainer);
   }
 
   // ── Helper: insert customer bubble ──
@@ -3876,27 +3891,19 @@ function runV2LabelFlow(convId, suffix) {
     const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdrP) {
       hdrP.innerHTML = `
-        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
         </button>
         <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
           Send
-          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
         </button>
-        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
         </button>`;
       v2ButtonsEnter(hdrP);
       window._v2CopiedFlag = false;
-      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-        window._v2CopiedFlag = true;
-        navigator.clipboard.writeText(ld.agentReply.text);
-        const btn = e.currentTarget;
-        btn.querySelector('.copy-tooltip')?.remove();
-        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-        btn.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+        v2PasteToDraft(draftPanel, suffix);
       });
       document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
         const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
@@ -3932,30 +3939,21 @@ function runV2LabelFlow(convId, suffix) {
       const hdr = draftPanel.querySelector('.composer-v2-draft-header-right');
       if (hdr) {
         hdr.innerHTML = `
-          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
           </button>
           <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
             Send
-            <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
           </button>
-          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
           </button>`;
         setTimeout(() => v2ButtonsEnter(hdr), 80);
         window._v2CopiedFlag = false;
 
         // Copy
-        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-          window._v2CopiedFlag = true;
-          navigator.clipboard.writeText(ld.agentReply.text);
-          const btn = e.currentTarget;
-          btn.querySelector('.copy-tooltip')?.remove();
-          const tip = document.createElement('span');
-          tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-          btn.appendChild(tip);
-          requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-          setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+          v2PasteToDraft(draftPanel, suffix);
         });
 
         // Send (once) — insert Daan bubble then start Phase 2
@@ -4005,30 +4003,21 @@ function runV2LabelFlow(convId, suffix) {
         if (hdr2) {
           hdr2.style.visibility = 'visible';
           hdr2.innerHTML = `
-            <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+            <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+              <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
             </button>
             <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
               Send
-              <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
             </button>
-            <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+            <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+              <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
             </button>`;
           setTimeout(() => v2ButtonsEnter(hdr2), 80);
           window._v2CopiedFlag = false;
 
           // Copy
-          document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-            window._v2CopiedFlag = true;
-            navigator.clipboard.writeText(ld.upgradeReply.text);
-            const btn = e.currentTarget;
-            btn.querySelector('.copy-tooltip')?.remove();
-            const tip = document.createElement('span');
-            tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-            btn.appendChild(tip);
-            requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-            setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+          document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+            v2PasteToDraft(draftPanel, suffix);
           });
 
           // Send (once) — insert Daan bubble + panel exits; label cards stay
@@ -4068,7 +4057,6 @@ function runV2LabelFlow(convId, suffix) {
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
     el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-    el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
         <div class="inbox-msg-bubble inbox-msg-bubble--agent">${text.replace(/\n/g, '<br>')}
@@ -4083,11 +4071,8 @@ function runV2LabelFlow(convId, suffix) {
         <span class="inbox-msg-time">${time}</span>
       </div>`;
     msgContainer.insertBefore(el, composer);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-      el.style.opacity = '1'; el.style.transform = 'translateY(0)';
-    }));
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    v2FlyDraftToBubble(draftBody, el);
+    v2ExpandSentBubble(el, msgContainer);
   }
 
   // ── Helper: insert customer bubble ──
@@ -4252,7 +4237,6 @@ function runV2BarryFlow(convId, suffix) {
   function insertAgentBubble(text, time) {
     const el = document.createElement('div');
     el.className = 'inbox-msg inbox-msg--agent inbox-msg--ai-sent';
-    el.style.cssText = 'opacity:0;transform:translateY(10px)';
     el.innerHTML = `
       <div class="inbox-msg-card">
         <div class="inbox-msg-bubble inbox-msg-bubble--agent">${text.replace(/\n/g, '<br>')}
@@ -4267,11 +4251,8 @@ function runV2BarryFlow(convId, suffix) {
         <span class="inbox-msg-time">${time}</span>
       </div>`;
     msgContainer.insertBefore(el, composer);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.style.transition = 'opacity 0.28s cubic-bezier(0.16,1,0.3,1), transform 0.28s cubic-bezier(0.16,1,0.3,1)';
-      el.style.opacity = '1'; el.style.transform = 'translateY(0)';
-    }));
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    v2FlyDraftToBubble(draftBody, el);
+    v2ExpandSentBubble(el, msgContainer);
   }
 
   // ── Helper: auto-insert internal note (no approval) ──
@@ -4355,27 +4336,19 @@ function runV2BarryFlow(convId, suffix) {
     const hdrP = draftPanel.querySelector('.composer-v2-draft-header-right');
     if (hdrP) {
       hdrP.innerHTML = `
-        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+        <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
         </button>
         <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
           Send
-          <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
         </button>
-        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+        <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
         </button>`;
       v2ButtonsEnter(hdrP);
       window._v2CopiedFlag = false;
-      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-        window._v2CopiedFlag = true;
-        navigator.clipboard.writeText(bd.agentReply.text);
-        const btn = e.currentTarget;
-        btn.querySelector('.copy-tooltip')?.remove();
-        const tip = document.createElement('span'); tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-        btn.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-        setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+      document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+        v2PasteToDraft(draftPanel, suffix);
       });
       document.getElementById(`composer-v2-send-${suffix}`)?.addEventListener('click', () => {
         const _wasCopied = !!window._v2CopiedFlag; window._v2CopiedFlag = false;
@@ -4419,30 +4392,21 @@ function runV2BarryFlow(convId, suffix) {
       const hdr = draftPanel.querySelector('.composer-v2-draft-header-right');
       if (hdr) {
         hdr.innerHTML = `
-          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Copy">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M5 11H4a1.5 1.5 0 01-1.5-1.5v-6A1.5 1.5 0 014 2h6A1.5 1.5 0 0111.5 4V5"/></svg>
+          <button class="composer-v2-btn--copy" id="composer-v2-copy-${suffix}" title="Paste into composer" aria-label="Paste into composer">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.8 3.25h-.032c-.813 0-1.469 0-2 .043-.546.045-1.026.14-1.47.366a3.75 3.75 0 0 0-1.64 1.639c-.226.444-.32.924-.365 1.47-.043.531-.043 1.187-.043 2v4.464c0 .813 0 1.469.043 2 .045.546.14 1.026.366 1.47a3.75 3.75 0 0 0 1.639 1.64c.444.226.924.32 1.47.365.531.043 1.187.043 2 .043h7.722c.583 0 .804.002 1.016.031.2.028.395.075.586.139.203.068.402.165.924.426l2.649 1.325A.75.75 0 0 0 21.75 20V8.768c0-.813 0-1.469-.043-2-.045-.546-.14-1.026-.366-1.47a3.75 3.75 0 0 0-1.639-1.64c-.444-.226-.924-.32-1.47-.365-.531-.043-1.187-.043-2-.043H7.8zM4.979 4.995c.197-.1.458-.17.912-.207.462-.037 1.057-.038 1.909-.038h8.4c.852 0 1.447 0 1.91.038.453.037.714.107.912.207.423.216.767.56.983.984.1.197.17.458.207.912.037.462.038 1.057.038 1.909v9.986l-1.563-.781-.048-.024c-.459-.23-.754-.377-1.069-.483a4.747 4.747 0 0 0-.856-.202c-.328-.046-.659-.046-1.172-.046H7.8c-.852 0-1.447 0-1.91-.038-.453-.038-.714-.107-.911-.207a2.25 2.25 0 0 1-.984-.983c-.1-.198-.17-.459-.207-.913-.037-.462-.038-1.056-.038-1.909V8.8c0-.852 0-1.447.038-1.91.037-.453.107-.714.207-.911a2.25 2.25 0 0 1 .984-.984zM12.75 8a.75.75 0 0 0-1.5 0v2.25H9a.75.75 0 0 0 0 1.5h2.25V14a.75.75 0 0 0 1.5 0v-2.25H15a.75.75 0 0 0 0-1.5h-2.25V8z" fill="currentColor"/></g></svg>
           </button>
           <button class="composer-v2-btn--approve" id="composer-v2-send-${suffix}">
             Send
-            <span class="composer-v2-btn-badge">⌘<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M13 5v4H3M6 6l-3 3 3 3"/></svg></span>
           </button>
-          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h8"/></svg>
+          <button class="composer-v2-btn--dismiss" id="composer-v2-dismiss-${suffix}" title="Minimise" aria-label="Minimise">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;flex-shrink:0;"><g fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 12a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75z" fill="currentColor"/></g></svg>
           </button>`;
         setTimeout(() => v2ButtonsEnter(hdr), 80);
         window._v2CopiedFlag = false;
 
         // Copy
-        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', (e) => {
-          window._v2CopiedFlag = true;
-          navigator.clipboard.writeText(bd.agentReply.text);
-          const btn = e.currentTarget;
-          btn.querySelector('.copy-tooltip')?.remove();
-          const tip = document.createElement('span');
-          tip.className = 'copy-tooltip'; tip.textContent = 'Copied';
-          btn.appendChild(tip);
-          requestAnimationFrame(() => tip.classList.add('copy-tooltip--visible'));
-          setTimeout(() => { tip.classList.remove('copy-tooltip--visible'); setTimeout(() => tip.remove(), 200); }, 1500);
+        document.getElementById(`composer-v2-copy-${suffix}`)?.addEventListener('click', () => {
+          v2PasteToDraft(draftPanel, suffix);
         });
 
         // Send (once)
